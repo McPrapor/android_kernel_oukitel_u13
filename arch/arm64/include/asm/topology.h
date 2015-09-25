@@ -34,6 +34,12 @@ extern int arch_get_nr_clusters(void);
 extern int arch_get_cluster_id(unsigned int cpu);
 extern void arch_get_cluster_cpus(struct cpumask *cpus, int cluster_id);
 
+#ifdef CONFIG_CPU_FREQ
+#define arch_scale_freq_capacity cpufreq_scale_freq_capacity
+struct sched_domain;
+extern unsigned long cpufreq_scale_freq_capacity(struct sched_domain *sd, int cpu);
+#endif
+
 #else
 
 static inline void init_cpu_topology(void) { }
