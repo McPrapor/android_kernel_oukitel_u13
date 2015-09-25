@@ -38,6 +38,7 @@ extern void arch_get_cluster_cpus(struct cpumask *cpus, int cluster_id);
 #define arch_scale_freq_capacity cpufreq_scale_freq_capacity
 struct sched_domain;
 extern unsigned long cpufreq_scale_freq_capacity(struct sched_domain *sd, int cpu);
+extern unsigned long cpufreq_scale_max_freq_capacity(int cpu);
 #endif
 
 #else
