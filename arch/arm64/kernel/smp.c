@@ -180,7 +180,7 @@ asmlinkage void secondary_start_kernel(void)
 
 	aee_rr_rec_hoplug(cpu, 4, 0);
 
-	flush_tlb_all();
+	local_flush_tlb_all();
 	cpu_set_default_tcr_t0sz();
 
 	aee_rr_rec_hoplug(cpu, 5, 0);
