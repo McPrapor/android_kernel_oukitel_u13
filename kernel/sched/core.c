@@ -2864,8 +2864,6 @@ again:
 	}
 
 	BUG(); /* the idle class will always have a runnable task */
-
-	return 0;
 }
 
 /*
