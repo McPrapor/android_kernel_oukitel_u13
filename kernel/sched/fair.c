@@ -2223,6 +2223,11 @@ static inline void update_cfs_shares(struct cfs_rq *cfs_rq)
 #ifdef CONFIG_SMP
 
 #ifdef CONFIG_MTK_SCHED_CMP
+int get_cluster_id(unsigned int cpu)
+{
+	return arch_get_cluster_id(cpu);
+}
+
 void get_cluster_cpus(struct cpumask *cpus, int cluster_id,
 			    bool exclusive_offline)
 {
@@ -2235,7 +2240,6 @@ void get_cluster_cpus(struct cpumask *cpus, int cluster_id,
 		cpumask_copy(cpus, &cls_cpus);
 }
 
-#ifdef CONFIG_MTK_SCHED_CMP_TGS
 static int nr_cpus_in_cluster(int cluster_id, bool exclusive_offline)
 {
 	struct cpumask cls_cpus;
@@ -2251,7 +2255,6 @@ static int nr_cpus_in_cluster(int cluster_id, bool exclusive_offline)
 
 	return nr_cpus;
 }
-#endif
 #endif /* CONFIG_MTK_SCHED_CMP */
 
 /*
@@ -2762,7 +2765,7 @@ static inline void update_tg_info(struct cfs_rq *cfs_rq, struct sched_entity *se
 
 	tg = p->group_leader;
 
-	id = arch_get_cluster_id(cpu_of(rq_of(cfs_rq)));
+	id = get_cluster_id(cpu_of(rq_of(cfs_rq)));
 	if (unlikely(WARN_ON(id < 0)))
 		return;
 
@@ -2770,7 +2773,7 @@ static inline void update_tg_info(struct cfs_rq *cfs_rq, struct sched_entity *se
 	tg->thread_group_info[id].loadwop_avg_contrib += ratio_delta;
 	raw_spin_unlock_irqrestore(&tg->thread_group_info_lock, flags);
 
-	mt_sched_printf(sched_cmp_info, "[%s] %d:%s %d:%s %ld %ld %d %d %lu:%lu:%lu update", __func__,
+	mt_sched_printf(sched_cmp, "update_tg_info %d:%s %d:%s %ld %ld %d %d %lu:%lu:%lu",
 	   tg->pid, tg->comm, p->pid, p->comm,
 	   se->avg.loadwop_avg_contrib, ratio_delta,
 	   cfs_rq->rq->cpu, id,
@@ -4307,7 +4310,7 @@ static void sched_tg_enqueue_fair(struct rq *rq, struct task_struct *p)
 
 	if (group_leader_is_empty(p))
 		return;
-	id = arch_get_cluster_id(rq->cpu);
+	id = get_cluster_id(rq->cpu);
 	if (unlikely(WARN_ON(id < 0)))
 		return;
 
@@ -4324,7 +4327,7 @@ static void sched_tg_dequeue_fair(struct rq *rq, struct task_struct *p)
 
 	if (group_leader_is_empty(p))
 		return;
-	id = arch_get_cluster_id(rq->cpu);
+	id = get_cluster_id(rq->cpu);
 	if (unlikely(WARN_ON(id < 0)))
 		return;
 
@@ -5281,58 +5284,36 @@ done:
 	return target;
 }
 
-
+#ifdef CONFIG_MTK_SCHED_CMP_TGS_WAKEUP
 /*
- * @p: the task want to be located at.
- * @prev_cpu: last cpu p located at.
+ * @p:      the task want to be located at.
+ * @clid:   the CPU cluster id to be search for the target CPU
+ * @target: the appropriate CPU for task p, updated by this function.
  *
  * Return:
  *
- * cpu id or
- * nr_cpu_ids if target CPU is not found
+ * 1 on success
+ * 0 if target CPU is not found in this CPU cluster
  */
-static int find_best_idle_cpu(struct task_struct *p, int prev_cpu)
+static int cmp_find_idle_cpu(struct cpumask *cpus)
 {
-	int j = 0, found = nr_cpu_ids;
-	struct cpumask allowed_mask;
-	unsigned long cap, max_cap = 0;
+	int j;
 
-	/* single cluster SMP architecture */
-	if (!arch_is_multi_cluster() && idle_cpu(prev_cpu))
-		return prev_cpu;
-
-	/* return nr_cpu_ids to go cluster-based cpu selection for multi-cluster SMP architecture */
-	if (arch_is_multi_cluster() && arch_is_smp())
-		return nr_cpu_ids;
-
-	cpumask_and(&allowed_mask, cpu_online_mask, tsk_cpus_allowed(p));
-	for_each_cpu(j, &allowed_mask) {
-		if (!idle_cpu(j))
-			continue;
-
-		if (!arch_is_smp()) { /* multi-cluster HMP architecture */
-			cap = arch_get_max_cpu_capacity(j);
-			if (cap > max_cap) {
-				found = j;
-				max_cap = cap;
-				mt_sched_printf(sched_lb,
-					"found=%d max_cap=%lu allowed_mask=%lu",
-					found, max_cap, allowed_mask.bits[0]);
-			}
-		} else {
-			found = j;
-			break;
-		}
+	for_each_cpu(j, cpus) {
+		if (idle_cpu(j))
+			return j;
 	}
 
-	return found;
+	return -1;
 }
 
-#ifdef CONFIG_MTK_SCHED_CMP_TGS_WAKEUP
+#if !defined(CONFIG_SCHED_HMP)
+#define TGS_WAKEUP_EXPERIMENT
+#endif
 static int cmp_select_task_rq_fair(struct task_struct *p, int prev_cpu)
 {
 	int i, j;
-	int in_prev, prev_cluster, target_cpu;
+	int in_prev, prev_cluster;
 	int max_tg_cnt, tg_cnt;
 	int max_idle_cnt, idle_cnt;
 	struct cpumask max_idle_mask, idle_mask;
@@ -5344,12 +5325,6 @@ static int cmp_select_task_rq_fair(struct task_struct *p, int prev_cpu)
 	max_idle_cnt = 0;
 	cpumask_clear(&max_idle_mask);
 
-	/* best idle cpu selection */
-	target_cpu = find_best_idle_cpu(p, prev_cpu);
-	if (target_cpu < nr_cpu_ids)
-		return target_cpu;
-
-	/* cluster-based cpu selection */
 	num_cluster = arch_get_nr_clusters();
 	for (i = 0; i < num_cluster; i++) {
 
@@ -5360,6 +5335,27 @@ static int cmp_select_task_rq_fair(struct task_struct *p, int prev_cpu)
 		if (!cpumask_weight(&allowed_mask))
 			continue;
 
+#ifdef TGS_WAKEUP_EXPERIMENT
+
+		if (arch_is_big_little()) {
+			int bcpu;
+
+			j = cpumask_any(&allowed_mask);
+			bcpu = arch_cpu_is_big(j);
+			if (bcpu && (p->se.avg.load_avg_contrib >= cmp_up_threshold)) {
+				mt_sched_printf(sched_cmp,
+					"[heavy task] wakeup load=%ld up_th=%u pid=%d name=%s prev_cpu=%d",
+					p->se.avg.load_avg_contrib, cmp_up_threshold, p->pid, p->comm, prev_cpu);
+				return cmp_find_idle_cpu(&allowed_mask);
+			}
+			if (!bcpu && (p->se.avg.load_avg_contrib < cmp_down_threshold)) {
+				mt_sched_printf(sched_cmp,
+					"[light task] wakeup load=%ld down_th=%u pid=%d name=%s prev_cpu=%d",
+					p->se.avg.load_avg_contrib, cmp_down_threshold, p->pid, p->comm, prev_cpu);
+				return cmp_find_idle_cpu(&allowed_mask);
+			}
+		}
+#endif
 		for_each_cpu(j, &allowed_mask) {
 			if (idle_cpu(j))
 				cpumask_set_cpu(j, &idle_mask);
@@ -5367,21 +5363,21 @@ static int cmp_select_task_rq_fair(struct task_struct *p, int prev_cpu)
 
 		tg_cnt = p->group_leader->thread_group_info[i].nr_running;
 		mt_sched_printf(sched_cmp,
-			"wakeup pid=%d name=%s load=%ld, cluster=%d allowed_cpu=%02lx, idle_cpu=%02lx",
-			p->pid, p->comm, p->se.avg.loadwop_avg_contrib, i, *cpumask_bits(&allowed_mask),
+			"wakeup pid=%d name=%s load=%ld cluster=%d allowed_cpu=0x%02lx idle_cpu=0x%02lx",
+			p->pid, p->comm, p->se.avg.load_avg_contrib, i, *cpumask_bits(&allowed_mask),
 			*cpumask_bits(&idle_mask));
 
-		mt_sched_printf(sched_cmp, "tg_cnt=%d max_tg_cnt=%d, onlineCPU=%02lx",
+		mt_sched_printf(sched_cmp, "tg_cnt=%d max_tg_cnt=%d, onlineCPU=0x%02lx",
 			tg_cnt, max_tg_cnt, *cpumask_bits(cpu_online_mask));
 
 		idle_cnt = cpumask_weight(&idle_mask);
 		if (0 == idle_cnt)
 			continue;
 
-		prev_cluster = (i == arch_get_cluster_id(prev_cpu)) ? 1 : 0;
+		prev_cluster = (i == get_cluster_id(prev_cpu)) ? 1 : 0;
 
 		if (tg_cnt > 0) {
-			/*  1. prefer the cpu in a cluster with more affined threads inside  */
+			/*  1. prefer to into cluster with most thread group cluster */
 			if ((tg_cnt > max_tg_cnt) || ((tg_cnt == max_tg_cnt) && prev_cluster)) {
 				in_prev = prev_cluster;
 				max_idle_cnt = idle_cnt;
@@ -5389,7 +5385,7 @@ static int cmp_select_task_rq_fair(struct task_struct *p, int prev_cpu)
 				cpumask_copy(&max_idle_mask, &idle_mask);
 			}
 		} else if (0 == max_tg_cnt) {
-			/* 2. otherwise, prefer the cpu in a cluster with more idle CPUs */
+			/* 2. when no thread group, prefer put into the cluster with most idle CPU */
 			if ((idle_cnt > max_idle_cnt) || ((idle_cnt == max_idle_cnt) && prev_cluster)) {
 				in_prev = prev_cluster;
 				max_idle_cnt = idle_cnt;
@@ -5398,13 +5394,13 @@ static int cmp_select_task_rq_fair(struct task_struct *p, int prev_cpu)
 
 		}
 		mt_sched_printf(sched_cmp,
-		"wakeup %d %s cluster=%d, max_idle_cpu=%02lx max_tg_cnt=%d max_idle_cnt=%d prev_cpu=%d in_prev=%d",
+		   "wakeup %d %s cluster=%d, max_idle_cpu=0x%02lx max_tg_cnt=%d max_idle_cnt=%d prev_cpu=%d in_prev=%d",
 			p->pid, p->comm, i, *cpumask_bits(&max_idle_mask), max_tg_cnt, max_idle_cnt, prev_cpu, in_prev);
 	}
 
 	/* no idle CPU */
 	if (!max_idle_cnt)
-		return nr_cpu_ids;
+		return -1;
 
 	if (in_prev && idle_cpu(prev_cpu)) {
 		mt_sched_printf(sched_cmp, "wakeup %d %s prev_cpu=%d", p->pid, p->comm, prev_cpu);
@@ -5418,19 +5414,40 @@ static int cmp_select_task_rq_fair(struct task_struct *p, int prev_cpu)
 		}
 	}
 
-	return nr_cpu_ids;
+	return -1;
 
 }
-#endif
 
 static int mt_select_task_rq_fair(struct task_struct *p, int prev_cpu)
 {
-#ifdef CONFIG_MTK_SCHED_CMP_TGS_WAKEUP
 	return cmp_select_task_rq_fair(p, prev_cpu);
-#else
-	return find_best_idle_cpu(p, prev_cpu);
-#endif
 }
+
+#endif
+
+#if defined(CONFIG_MT_SCHED_INTEROP) && !defined(CONFIG_MTK_SCHED_CMP_TGS_WAKEUP)
+static int interop_select_task_rq_fair(struct task_struct *p, int prev_cpu)
+{
+	int i;
+	struct cpumask allowed_mask;
+	cpumask_and(&allowed_mask, cpu_online_mask, tsk_cpus_allowed(p));
+	mt_sched_printf(sched_interop, "prev cpu=%d, idle_prev=%d find idle cpu from cpumask 0x%lx",
+			prev_cpu, idle_cpu(prev_cpu), allowed_mask.bits[0]);
+	if (idle_cpu(prev_cpu))
+		return prev_cpu;
+	if (!cpumask_weight(&allowed_mask))
+		return -1;
+	for_each_cpu(i, &allowed_mask) {
+		if (idle_cpu(i))
+			return i;
+	}
+	return -1;
+}
+static int mt_select_task_rq_fair(struct task_struct *p, int prev_cpu)
+{
+	return interop_select_task_rq_fair(p, prev_cpu);
+}
+#endif
 
 #ifdef CONFIG_MTK_SCHED_TRACERS
 #define LB_RESET		0
@@ -5465,7 +5482,9 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 	int new_cpu = cpu;
 	int want_affine = 0;
 	int sync = wake_flags & WF_SYNC;
+#if defined(CONFIG_MTK_SCHED_CMP_TGS_WAKEUP) || defined(CONFIG_MT_SCHED_INTEROP)
 	int prefer_cpu;
+#endif
 #ifdef CONFIG_MTK_SCHED_TRACERS
 	int policy = 0;
 #endif
@@ -5517,8 +5536,10 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 	if (sd_flag & SD_BALANCE_WAKE)
 		want_affine = cpumask_test_cpu(cpu, tsk_cpus_allowed(p));
 
+#if defined(CONFIG_MTK_SCHED_CMP_TGS_WAKEUP) || defined(CONFIG_MT_SCHED_INTEROP)
 	prefer_cpu = mt_select_task_rq_fair(p, prev_cpu);
-	if (prefer_cpu < nr_cpu_ids) {
+
+	if ((-1 != prefer_cpu) && (prefer_cpu < nr_cpu_ids)) {
 		cpu = prefer_cpu;
 		new_cpu = prefer_cpu;
 #ifdef CONFIG_MTK_SCHED_TRACERS
@@ -5529,7 +5550,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 				p->pid, p->comm, cpu);
 		goto mt_found;
 	}
-
+#endif
 	rcu_read_lock();
 	for_each_domain(cpu, tmp) {
 		mt_sched_printf(sched_log, "wakeup %d %s tmp->flags=%x, cpu=%d, prev_cpu=%d, new_cpu=%d",
@@ -5617,7 +5638,9 @@ unlock:
 	rcu_read_unlock();
 	mt_sched_printf(sched_log, "wakeup %d %s new_cpu=%x", p->pid, p->comm, new_cpu);
 
+#if defined(CONFIG_MTK_SCHED_CMP_TGS_WAKEUP) || defined(CONFIG_MT_SCHED_INTEROP)
 mt_found:
+#endif
 	if (sched_feat(SCHED_HMP)) {
 		new_cpu = hmp_select_task_rq_fair(sd_flag, p, prev_cpu, new_cpu);
 #ifdef CONFIG_MTK_SCHED_TRACERS
@@ -6444,12 +6467,17 @@ static int cmp_can_migrate_task(struct task_struct *p, struct lb_env *env)
 		int src_clid, dst_clid;
 		int src_nr_cpus;
 
-		src_clid = arch_get_cluster_id(env->src_cpu);
-		dst_clid = arch_get_cluster_id(env->dst_cpu);
+		src_clid = get_cluster_id(env->src_cpu);
+		dst_clid = get_cluster_id(env->dst_cpu);
 		BUG_ON(dst_clid == -1 || src_clid == -1);
 		BUG_ON(p == NULL);
 		src_nr_cpus = nr_cpus_in_cluster(src_clid, false);
 
+		mt_sched_printf(sched_cmp_info,
+		"check rule0: pid=%d comm=%s load=%ld src:clid=%d tginfo->nr_running=%ld nr_cpus=%d load_avg_ratio=%ld",
+			p->pid, p->comm, p->se.avg.load_avg_contrib,
+			src_clid, src_tginfo->nr_running, src_nr_cpus,
+			src_tginfo->load_avg_contrib);
 #ifdef CONFIG_MTK_SCHED_CMP_TGS_WAKEUP
 		if (!thread_group_empty(p)) {
 			struct thread_group_info_t *src_tginfo, *dst_tginfo;
@@ -6484,31 +6512,22 @@ static int need_migrate_task_immediately(struct task_struct *p,
 					 struct lb_env *env, struct clb_env *clbenv)
 {
 	struct sched_domain *sd = env->sd;
-#ifdef CONFIG_SCHED_HMP
-	unsigned long src_cap, dst_cap;
-#endif
 
 	BUG_ON(sd == NULL);
 
-#ifdef CONFIG_SCHED_HMP
-	src_cap = arch_get_max_cpu_capacity(env->src_cpu);
-	dst_cap = arch_get_max_cpu_capacity(env->dst_cpu);
-	if (src_cap != dst_cap) {
-		mt_sched_printf(sched_cmp,
-			"[%s] diffcap src: cpu/cap(%u/%lu) dst: cpu/cap(%u/%lu) th: up/dl(%d/%d)", __func__,
-			env->src_cpu, src_cap, env->dst_cpu, dst_cap, clbenv->bstats.threshold,
-			clbenv->lstats.threshold);
+	if (arch_is_big_little()) {
+		mt_sched_printf(sched_cmp, "[%s] b.L arch", __func__);
 		mt_sched_printf(sched_cmp_info,
-			"check rule0: pid=%d comm=%s src=%d dst=%d p->prio=%d p->se.avg.loadwop_avg_contrib=%ld",
-			p->pid, p->comm, env->src_cpu, env->dst_cpu, p->prio, p->se.avg.loadwop_avg_contrib);
-
-		/* from small to big caps */
-		if (src_cap < dst_cap) {
+			"check rule0: pid=%d comm=%s src=%d dst=%d p->prio=%d p->se.avg.load_avg_ratio=%ld",
+			p->pid, p->comm, env->src_cpu, env->dst_cpu, p->prio, p->se.avg.load_avg_contrib);
+		/* from LITTLE to big */
+		if (arch_cpu_is_little(env->src_cpu) && arch_cpu_is_big(env->dst_cpu)) {
 			BUG_ON(env->src_cpu != clbenv->ltarget);
 			if (p->se.avg.loadwop_avg_contrib >= clbenv->bstats.threshold)
 				return 1;
-		/* from big to small caps */
-		} else if (src_cap > dst_cap) {
+
+		/* from big to LITTLE */
+		} else if (arch_cpu_is_big(env->src_cpu) && arch_cpu_is_little(env->dst_cpu)) {
 			BUG_ON(env->src_cpu != clbenv->btarget);
 			if (p->se.avg.loadwop_avg_contrib < clbenv->lstats.threshold)
 				return 1;
@@ -6522,8 +6541,8 @@ static int need_migrate_task_immediately(struct task_struct *p,
 		int src_nr_cpus;
 		struct thread_group_info_t *src_tginfo, *dst_tginfo;
 
-		src_clid = arch_get_cluster_id(env->src_cpu);
-		dst_clid = arch_get_cluster_id(env->dst_cpu);
+		src_clid = get_cluster_id(env->src_cpu);
+		dst_clid = get_cluster_id(env->dst_cpu);
 		BUG_ON(dst_clid == -1 || src_clid == -1);
 		BUG_ON(p == NULL);
 
@@ -6730,8 +6749,8 @@ static int tgs_detach_tasks(struct lb_env *env)
 
 	tg_load_move = env->imbalance;
 	INIT_LIST_HEAD(&tg_tasks);
-	src_clid = arch_get_cluster_id(env->src_cpu);
-	dst_clid = arch_get_cluster_id(env->dst_cpu);
+	src_clid = get_cluster_id(env->src_cpu);
+	dst_clid = get_cluster_id(env->dst_cpu);
 	BUG_ON(dst_clid == -1 || src_clid == -1);
 
 	mt_sched_printf(sched_cmp,
