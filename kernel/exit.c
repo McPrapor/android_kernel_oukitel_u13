@@ -57,6 +57,7 @@
 #include "mt_sched_mon.h"
 #include "mt_cputime.h"
 #endif
+#include <linux/kcov.h>
 
 #include "sched/tune.h"
 
@@ -685,6 +686,8 @@ void do_exit(long code)
 	/* mt throttle monitor */
 	end_mt_rt_mon_info(tsk);
 #endif
+	kcov_task_exit(tsk);
+
 	WARN_ON(blk_needs_flush_plug(tsk));
 
 	if (unlikely(in_interrupt()))
