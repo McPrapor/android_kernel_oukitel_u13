@@ -21,6 +21,7 @@
 #include <linux/slab.h>
 
 #include <asm/cacheflush.h>
+#include <asm/cpufeature.h>
 #include <asm/efi.h>
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
@@ -462,14 +463,59 @@ static int __init arm64_enter_virtual_mode(void)
 	efi.runtime_version = efi.systab->hdr.revision;
 
 	return 0;
+}
 
-err_unmap:
-	/* unmap all mappings that succeeded: there are 'count' of those */
-	for (virt_md = virtmap; count--; virt_md += memmap.desc_size) {
-		md = virt_md;
-		iounmap((__force void __iomem *)md->virt_addr);
+static int __init arm64_dmi_init(void)
+{
+	/*
+	 * On arm64, DMI depends on UEFI, and dmi_scan_machine() needs to
+	 * be called early because dmi_id_init(), which is an arch_initcall
+	 * itself, depends on dmi_scan_machine() having been called already.
+	 */
+	dmi_scan_machine();
+	if (dmi_available)
+		dmi_set_dump_stack_arch_desc();
+	return 0;
+}
+core_initcall(arm64_dmi_init);
+
+static void efi_set_pgd(struct mm_struct *mm)
+{
+	__switch_mm(mm);
+
+	if (system_uses_ttbr0_pan()) {
+		if (mm != current->active_mm) {
+			/*
+			 * Update the current thread's saved ttbr0 since it is
+			 * restored as part of a return from exception. Set
+			 * the hardware TTBR0_EL1 using cpu_switch_mm()
+			 * directly to enable potential errata workarounds.
+			 */
+			update_saved_ttbr0(current, mm);
+			cpu_switch_mm(mm->pgd, mm);
+		} else {
+			/*
+			 * Defer the switch to the current thread's TTBR0_EL1
+			 * until uaccess_enable(). Restore the current
+			 * thread's saved ttbr0 corresponding to its active_mm
+			 * (if different from init_mm).
+			 */
+			cpu_set_reserved_ttbr0();
+			if (current->active_mm != &init_mm)
+				update_saved_ttbr0(current, current->active_mm);
+		}
 	}
-	kfree(virtmap);
-	return -1;
+}
+
+void efi_virtmap_load(void)
+{
+	preempt_disable();
+	efi_set_pgd(&efi_mm);
+}
+
+void efi_virtmap_unload(void)
+{
+	efi_set_pgd(current->active_mm);
+	preempt_enable();
 }
 early_initcall(arm64_enter_virtual_mode);
