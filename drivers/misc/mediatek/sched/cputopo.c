@@ -103,7 +103,7 @@ static struct kobj_attribute nr_clusters_attr = __ATTR_RO(nr_clusters);
 static ssize_t is_big_little_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	return snprintf(buf, MAX_LONG_SIZE, "%u\n", !arch_is_smp());
+	return snprintf(buf, MAX_LONG_SIZE, "%i\n", 0);
 }
 static struct kobj_attribute is_big_little_attr = __ATTR_RO(is_big_little);
 
@@ -126,8 +126,7 @@ static ssize_t glbinfo_show(struct kobject *kobj,
 	int i, len = 0;
 	struct cpumask cpus;
 
-	len += snprintf(buf + len, PAGE_SIZE - len - 1, "big/little arch: %s\n",
-					arch_is_smp() ? "no" : "yes");
+	len += snprintf(buf + len, PAGE_SIZE - len - 1, "big/little arch: no\n");
 	len += snprintf(buf + len, PAGE_SIZE - len - 1, "nr_cups: %u\n",
 					nr_cpu_ids);
 	len += snprintf(buf + len, PAGE_SIZE - len - 1, "nr_clusters: %u\n",
