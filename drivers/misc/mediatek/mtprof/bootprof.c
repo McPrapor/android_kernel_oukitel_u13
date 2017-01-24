@@ -19,6 +19,7 @@
 #include <linux/moduleparam.h>
 #include <asm/uaccess.h>
 #include <linux/printk.h>
+#include <linux/slab.h>
 
 #include "internal.h"
 /* #include <mt_hotplug_strategy.h> */
