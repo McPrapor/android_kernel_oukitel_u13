@@ -1,0 +1,405 @@
+/*
+ * Copyright (c) 2017 M.A.D.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include <dt-bindings/clock/mt6753-clk.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/power/mt6753-power.h>
+#include <dt-bindings/reset-controller/mt6753-resets.h>
+#include "mt6753-pinfunc.h"
+
+/ {
+	compatible = "mediatek,mt6753";
+	interrupt-parent = <&gic>;
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu-map {
+			cluster0 {
+				core0 {
+					cpu = <&cpu0>;
+				};
+				core1 {
+					cpu = <&cpu1>;
+				};
+				core2 {
+					cpu = <&cpu2>;
+				};
+				core3 {
+					cpu = <&cpu3>;
+				};
+			};
+
+			cluster1 {
+				core0 {
+					cpu = <&cpu4>;
+				};
+				core1 {
+					cpu = <&cpu5>;
+				};
+				core2 {
+					cpu = <&cpu6>;
+				};
+				core3 {
+					cpu = <&cpu7>;
+				};
+			};
+		};
+
+		cpu0: cpu@000 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x000>;
+			enable-method = "psci";
+			cpu-idle-states = <&CPU_SLEEP_0>;
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+		};
+
+		cpu1: cpu@001 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x001>;
+			enable-method = "psci";
+			cpu-idle-states = <&CPU_SLEEP_0>;
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+		};
+
+		cpu2: cpu@002 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x002>;
+			enable-method = "psci";
+			cpu-idle-states = <&CPU_SLEEP_0>;
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+		};
+
+		cpu3: cpu@003 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x003>;
+			enable-method = "psci";
+			cpu-idle-states = <&CPU_SLEEP_0>;
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+		};
+
+		cpu4: cpu@100 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x100>;
+			enable-method = "psci";
+			cpu-idle-states = <&CPU_SLEEP_0>;
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+		};
+
+		cpu5: cpu@101 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x101>;
+			enable-method = "psci";
+			cpu-idle-states = <&CPU_SLEEP_0>;
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+		};
+
+		cpu6: cpu@102 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x102>;
+			enable-method = "psci";
+			cpu-idle-states = <&CPU_SLEEP_0>;
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+		};
+
+		cpu7: cpu@103 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0x103>;
+			enable-method = "psci";
+			cpu-idle-states = <&CPU_SLEEP_0>;
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+		};
+
+		idle-states {
+			entry-method = "arm,psci";
+
+			CPU_SLEEP_0: cpu-sleep-0 {
+				compatible = "arm,idle-state";
+				local-timer-stop;
+				entry-latency-us = <639>;
+				exit-latency-us = <680>;
+				min-residency-us = <1088>;
+				arm,psci-suspend-param = <0x0010000>;
+			};
+		};
+
+		/include/ "mt6753-sched-energy.dtsi"
+
+	};
+
+	psci {
+		compatible = "arm,psci";
+		method = "smc";
+		cpu_suspend   = <0x84000001>;
+		cpu_off	      = <0x84000002>;
+		cpu_on	      = <0x84000003>;
+	};
+
+	clk26m: oscillator@0 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <26000000>;
+		clock-output-names = "clk26m";
+	};
+
+	clk32k: oscillator@1 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <32000>;
+		clock-output-names = "clk32k";
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW>, /*Secure Physical Timer Event*/
+			<GIC_PPI 14 IRQ_TYPE_LEVEL_LOW>, /*Non-Secure Physical Timer Event*/
+			<GIC_PPI 11 IRQ_TYPE_LEVEL_LOW>, /*Virtual Timer Event*/
+			<GIC_PPI 10 IRQ_TYPE_LEVEL_LOW>; /*Hypervisor Timer Event*/
+			clock-frequency = <13000000>;
+	};
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "simple-bus";
+		ranges;
+
+		topckgen: clock-controller@10210000 {
+			compatible = "mediatek,mt6735-topckgen";
+			reg = <0 0x10210000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		infrasys: power-controller@10000000 {
+			compatible = "mediatek,mt6735-infrasys";
+			reg = <0 0x10000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		perisys: power-controller@10002000 {
+			compatible = "mediatek,mt6735-perisys";
+			reg = <0 0x10002000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		pio: pinctrl {
+			compatible = "mediatek,mt6735-pinctrl";
+			reg = <0 10211000 0 1000>;
+			mediatek,pctl-regmap = <&syscfg_pctl_a>;
+			pins-are-numbered;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		syscfg_pctl_a: syscfg_pctl_a@10211000 {
+			compatible = "mediatek,mt6735-pctl-a-syscfg", "syscon";
+			reg = <0 10211000 0 1000>;
+		};
+
+		scpsys: scpsys@0x10000000 {
+			compatible = "mediatek,mt6735-scpsys";
+			reg = <0x10000000 0x1000>, <0x10006000 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		watchdog: watchdog@10212000 {
+			compatible = "mediatek,mt6753-wdt",
+				     "mediatek,mt6589-wdt";
+			reg = <0 0x10212000 0 0x100>;
+		};
+
+		sysirq: intpol-controller@10200620 {
+			compatible = "mediatek,mt6753-sysirq",
+				     "mediatek,mt6577-sysirq";
+			interrupt-controller;
+			#interrupt-cells = <3>;
+			interrupt-parent = <&gic>;
+			reg = <0 0x10200620 0 0x20>;
+		};
+
+		apmixedsys: clock-controller@10209000 {
+			compatible = "mediatek,mt6735-apmixedsys";
+			reg = <0 0x10209000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		gic: interrupt-controller@10220000 {
+			compatible = "mediatek,mt6735-gic";
+			#interrupt-cells = <3>;
+			#address-cells = <0>;
+			interrupt-controller;
+			reg = <0 0x10221000 0 0x1000>,
+				<0 0x10222000 0 0x1000>,
+				<0 0x10200620 0 0x1000>;
+
+			mediatek,wdt_irq = <160>;
+
+			gic-cpuif@0 {
+				compatible = "arm,gic-cpuif";
+				cpuif-id = <0>;
+				cpu = <&cpu0>;
+			};
+
+			gic-cpuif@1 {
+				compatible = "arm,gic-cpuif";
+				cpuif-id = <1>;
+				cpu = <&cpu1>;
+			};
+
+			gic-cpuif@2 {
+				compatible = "arm,gic-cpuif";
+				cpuif-id = <2>;
+				cpu = <&cpu2>;
+			};
+
+			gic-cpuif@3 {
+				compatible = "arm,gic-cpuif";
+				cpuif-id = <3>;
+				cpu = <&cpu3>;
+			};
+		};
+
+		apuart0: serial@11002000 {
+			compatible = "mediatek,mt6735-uart",
+				     "mediatek,mt6577-uart";
+			reg = <0 0x11002000 0 0x400>;
+			interrupts = <GIC_SPI 91 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&perisys CLK_PERI_UART0_SEL>, <&perisys CLK_PERI_UART0>;
+			clock-names = "baud", "bus";
+			status = "disabled";
+		};
+
+		apuart1: serial@11003000 {
+			compatible = "mediatek,mt6735-uart",
+				     "mediatek,mt6577-uart";
+			reg = <0 0x11003000 0 0x400>;
+			interrupts = <GIC_SPI 92 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&perisys CLK_PERI_UART1_SEL>, <&perisys CLK_PERI_UART1>;
+			clock-names = "baud", "bus";
+			status = "disabled";
+		};
+
+		apuart2: serial@11004000 {
+			compatible = "mediatek,mt6735-uart",
+				     "mediatek,mt6577-uart";
+			reg = <0 0x11004000 0 0x400>;
+			interrupts = <GIC_SPI 93 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&pericfg CLK_PERI_UART2_SEL>, <&pericfg CLK_PERI_UART2>;
+			clock-names = "baud", "bus";
+			status = "disabled";
+		};
+
+		apuart3: serial@11005000 {
+			compatible = "mediatek,mt6735-uart",
+				     "mediatek,mt6577-uart";
+			reg = <0 0x11005000 0 0x400>;
+			interrupts = <GIC_SPI 94 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&pericfg CLK_PERI_UART3_SEL>, <&pericfg CLK_PERI_UART3>;
+			clock-names = "baud", "bus";
+			status = "disabled";
+		};
+
+		i2c0:i2c@11007000 {
+			compatible = "mediatek,mt6753-i2c";
+			cell-index = <0>;
+			reg = <0x11007000 0x1000>;
+			interrupts = <GIC_SPI 84 IRQ_TYPE_LEVEL_LOW>,
+				<GIC_SPI 98 IRQ_TYPE_LEVEL_LOW>;
+			def_speed = <100>;
+		};
+
+		i2c1:i2c@11008000 {
+			compatible = "mediatek,mt6753-i2c";
+			cell-index = <1>;
+			reg = <0x11008000 0x1000>;
+			interrupts = <GIC_SPI 85 IRQ_TYPE_LEVEL_LOW>,
+				<GIC_SPI 99 IRQ_TYPE_LEVEL_LOW>;
+			def_speed = <100>;
+		};
+
+		i2c2:i2c@11009000 {
+			compatible = "mediatek,mt6753-i2c";
+			cell-index = <2>;
+			reg = <0x11009000 0x1000>;
+			interrupts = <GIC_SPI 86 IRQ_TYPE_LEVEL_LOW>,
+				<GIC_SPI 100 IRQ_TYPE_LEVEL_LOW>;
+			def_speed = <100>;
+		};
+
+		i2c3:i2c@1100f000 {
+			compatible = "mediatek,mt6753-i2c";
+			cell-index = <3>;
+			reg = <0x1100f000 0x1000>;
+			interrupts = <GIC_SPI 87 IRQ_TYPE_LEVEL_LOW>,
+				<GIC_SPI 101 IRQ_TYPE_LEVEL_LOW>;
+			def_speed = <100>;
+		};
+
+		i2c4:i2c@11012000 {
+			compatible = "mediatek,mt6753-i2c";
+			cell-index = <4>;
+			reg = <0x11012000 0x1000>;
+			interrupts = <GIC_SPI 88 IRQ_TYPE_LEVEL_LOW>,
+				<GIC_SPI 102 IRQ_TYPE_LEVEL_LOW>;
+			def_speed = <100>;
+		};
+
+		mmc0: msdc0@11230000{
+				compatible = "mediatek,mt6753-mmc";
+				reg = <0x11230000 0x10000  /* MSDC0_BASE   */
+					0x10000e84 0x2>;    /* FPGA PWR_GPIO, PWR_GPIO_EO */
+				interrupts = <GIC_SPI 79 IRQ_TYPE_LEVEL_LOW>;
+				status = "disabled";
+		};
+
+		mmc1: msdc1@11240000{
+				compatible = "mediatek,mt6753-mmc";
+				reg = <0x11240000 0x10000  /* MSDC1_BASE   */
+					0x10000e84 0x2>;    /* FPGA PWR_GPIO, PWR_GPIO_EO */
+				interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_LOW>;
+				status = "disabled";
+		};
+
+		mmc2: msdc2@11250000{
+				compatible = "mediatek,mt6735-mmc";
+				reg = <0x11250000 0x10000  /* MSDC2_BASE   */
+					0x10000e84 0x2>;    /* FPGA PWR_GPIO, PWR_GPIO_EO */
+				interrupts = <GIC_SPI 81 IRQ_TYPE_LEVEL_LOW>;
+				status = "disabled";
+				clocks = <&perisys PERI_MSDC30_2>;
+				clock-names="MSDC2-CLOCK";
+		};
+
+		mmc3: msdc3@11260000{
+				compatible = "mediatek,mt6735-mmc";
+				reg = <0x11260000 0x10000  /* MSDC2_BASE   */
+					0x10000e84 0x2>;    /* FPGA PWR_GPIO, PWR_GPIO_EO */
+				interrupts = <GIC_SPI 82 IRQ_TYPE_LEVEL_LOW>;
+				status = "disabled";
+				clocks = <&perisys PERI_MSDC30_3>;
+				clock-names="MSDC3-CLOCK";
+		};
+	};
+};
+
