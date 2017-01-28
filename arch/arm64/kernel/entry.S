@@ -199,7 +199,7 @@ alternative_else_nop_endif
 	.endm
 #endif
 
-	.macro	kernel_exit, el
+	.macro	kernel_exit, el, ret = 0
 	.if	\el != 0
 	/* Restore the task's original addr_limit. */
 	ldr	x20, [sp, #S_ORIG_ADDR_LIMIT]
@@ -259,7 +259,11 @@ alternative_endif
 
 	msr	elr_el1, x21			// set up the return data
 	msr	spsr_el1, x22
+	.if	\ret
+	ldr	x1, [sp, #S_X1]			// preserve x0 (syscall return)
+	.else
 	ldp	x0, x1, [sp, #16 * 0]
+	.endif
 	ldp	x2, x3, [sp, #16 * 1]
 	ldp	x4, x5, [sp, #16 * 2]
 	ldp	x6, x7, [sp, #16 * 3]
@@ -804,25 +808,26 @@ ENDPROC(cpu_switch_to)
  */
 ret_fast_syscall:
 	disable_irq				// disable interrupts
-	str	x0, [sp, #S_X0]			// returned x0
 	ldr	x1, [tsk, #TI_FLAGS]		// re-check for syscall tracing
 	and	x2, x1, #_TIF_SYSCALL_WORK
 	cbnz	x2, ret_fast_syscall_trace
 	and	x2, x1, #_TIF_WORK_MASK
-	cbnz	x2, work_pending
+	cbnz	x2, fast_work_pending
 	enable_step_tsk x1, x2
 #ifdef CONFIG_MTK_COMPAT
-	kernel_exit_compat
+	kernel_exit_compat ret = 1
 #else
-	kernel_exit 0
+	kernel_exit 0, ret = 1
 #endif
 ret_fast_syscall_trace:
 	enable_irq				// enable interrupts
-	b	__sys_trace_return_skipped	// we already saved x0
+	b	__sys_trace_return
 
 /*
  * Ok, we need to do extra processing, enter the slow path.
  */
+fast_work_pending:
+	str	x0, [sp, #S_X0]			// returned x0
 work_pending:
 	tbnz	x1, #TIF_NEED_RESCHED, work_resched
 	/* TIF_SIGPENDING, TIF_NOTIFY_RESUME or TIF_FOREIGN_FPSTATE case */
@@ -847,9 +852,9 @@ ret_to_user:
 	enable_step_tsk x1, x2
 no_work_pending:
 #ifdef CONFIG_MTK_COMPAT
-	kernel_exit_compat
+	kernel_exit_compat ret = 0
 #else
-	kernel_exit 0
+	kernel_exit 0, ret = 0
 #endif
 ENDPROC(ret_to_user)
 
